@@ -8,6 +8,7 @@ __pycache__
 .pixi
 .cache
 *.old
+.idea/
 
 # Created by https://www.toptal.com/developers/gitignore/api/cmake,linux,macos,visualstudiocode,python
 # Edit at https://www.toptal.com/developers/gitignore?templates=cmake,linux,macos,visualstudiocode,python

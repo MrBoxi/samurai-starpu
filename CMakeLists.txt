@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 
+# disable all warning
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w")
+
 # Set version
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/version.txt")
   file(READ "${CMAKE_CURRENT_SOURCE_DIR}/version.txt" SAMURAI_VERSION)
@@ -54,6 +57,7 @@ option(ENABLE_COVERAGE "Activate coverage" OFF)
 option(WITH_MPI "Enable MPI" OFF)
 option(WITH_OPENMP "Enable OpenMP" OFF)
 option(WITH_PETSC "Enable PETSc" OFF)
+option(WITH_STARPU "Enable StarPU" OFF)
 option(SAMURAI_ENABLE_INLINE "Enable inline keyword for performance" ON)
 option(SAMURAI_FORCE_INLINE "Force aggressive inlining (takes precedence)" OFF)
 option(SAMURAI_CONTAINER_LAYOUT_COL_MAJOR "Set the containers' layout to column-major" OFF)
@@ -107,6 +111,20 @@ project_options(
 add_library(samurai INTERFACE)
 target_compile_features(samurai INTERFACE cxx_std_20)
 target_link_libraries(samurai INTERFACE project_options project_warnings)
+
+if (${WITH_STARPU})
+  find_package(PkgConfig)
+  pkg_check_modules(STARPU REQUIRED starpu-1.4)
+  if (STARPU_FOUND)
+    include_directories(${STARPU_INCLUDE_DIRS})
+    link_directories(${STARPU_STATIC_LIBRARY_DIRS})
+    target_link_libraries(samurai INTERFACE ${STARPU_LIBRARIES})
+    target_compile_definitions(samurai INTERFACE SAMURAI_WITH_STARPU)
+    message(STATUS "StarPU found")
+  else ()
+    message(FATAL_ERROR "StarPU not found")
+  endif ()
+endif()
 
 # Expose the samurai version to the C++ code (see include/samurai/version.hpp)
 target_compile_definitions(samurai INTERFACE

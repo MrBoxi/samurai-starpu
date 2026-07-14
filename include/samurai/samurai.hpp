@@ -11,6 +11,10 @@ namespace mpi = boost::mpi;
 #include <petsc.h>
 #endif
 
+#ifdef SAMURAI_WITH_STARPU
+#include <starpu.h>
+#endif
+
 #include "arguments.hpp"
 #include "timers.hpp"
 #include "version.hpp"
@@ -57,6 +61,16 @@ namespace samurai
         }
 
         std::this_thread::sleep_for(std::chrono::seconds(args::sleep_at_startup));
+
+
+#ifdef SAMURAI_WITH_STARPU
+        int ret = starpu_init(NULL);
+        if (ret != 0)
+        {
+            std::cerr << "Error initializing StarPU: " << ret << std::endl;
+            std::exit(EXIT_FAILURE);
+        }
+#endif
 
 #if defined(SAMURAI_WITH_PETSC)
         // MPI_Init() in called by PetscInitialize()
@@ -105,6 +119,11 @@ namespace samurai
             std::cout << std::endl;
             times::timers.print();
         }
+
+#ifdef SAMURAI_WITH_STARPU
+        starpu_shutdown();
+#endif
+
 #if defined(SAMURAI_WITH_PETSC)
         PetscFinalize();
 #elif defined(SAMURAI_WITH_MPI)
