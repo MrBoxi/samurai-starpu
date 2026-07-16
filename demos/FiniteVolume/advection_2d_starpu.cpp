@@ -100,6 +100,10 @@ void init(StarpuField& u)
     }
 }
 
+#include <unistd.h>
+#include <cstring>
+#include <cstdio>
+
 int main(int argc, char* argv[])
 {
     samurai::initialize("Finite volume example for the advection equation in 2d with StarPU", argc, argv);
@@ -114,11 +118,15 @@ int main(int argc, char* argv[])
         const double cfl = 0.5;
         double t   = 0.;
         std::size_t level = 7;
+        std::size_t max_iter = std::numeric_limits<std::size_t>::max();
 
         // Output parameters
         fs::path path        = fs::current_path();
         std::string filename = "FV_advection_2d_starpu";
         std::size_t nfiles   = 1;
+        bool no_save = false;
+        std::string save_perf_filename = "";
+        std::string label = "none";
 
         auto& app = samurai::app;
         app.add_option("--Tf", Tf, "Final time")->capture_default_str()->group("Simulation parameters");
@@ -126,7 +134,21 @@ int main(int argc, char* argv[])
         app.add_option("--filename", filename, "File name prefix")->capture_default_str()->group("Output");
         app.add_option("--nfiles", nfiles, "Number of output files")->capture_default_str()->group("Output");
         app.add_option("--nb-task", nb_task, "Number of StarPU tasks")->capture_default_str()->group("Simulation parameters");
+        app.add_option("--max-iter", max_iter, "Maximum number of iterations")->capture_default_str()->group("Simulation parameters");
+        app.add_flag("--no-save", no_save, "Disable file saving")->group("Output");
+        app.add_option("--save-perf", save_perf_filename, "Save the performance to the file")->group("Output");
+        app.add_option("--label", label, "Label for the performance file")->group("Output");
         SAMURAI_PARSE(argc, argv);
+
+        if (samurai::args::max_level != std::numeric_limits<std::size_t>::max())
+        {
+            level = samurai::args::max_level;
+        }
+        else if (samurai::args::min_level != std::numeric_limits<std::size_t>::max())
+        {
+            level = samurai::args::min_level;
+        }
+
 
         const samurai::Box<double, dim> box({0., 0.}, {1., 1.});
 
@@ -151,7 +173,7 @@ int main(int argc, char* argv[])
 
         auto start_loop = std::chrono::steady_clock::now();
 
-        while (t != Tf)
+        while (t != Tf && nt < max_iter)
         {
 
             t += dt;
@@ -161,7 +183,7 @@ int main(int argc, char* argv[])
                 t = Tf;
             }
 
-            std::cout << fmt::format("iteration {}: t = {}, dt = {}", nt++, t, dt) << std::endl;
+            //std::cout << fmt::format("iteration {}: t = {}, dt = {}", nt, t, dt) << std::endl;
 
             // 1. Submit generic ghost exchange tasks
             samurai::starpu_uniform::submit_ghost_exchange(u, level);
@@ -192,11 +214,14 @@ int main(int argc, char* argv[])
 
 
             // Save intermediate step
-            if (t >= static_cast<double>(nsave) * dt_save || t == Tf)
+            if (!no_save && (t >= static_cast<double>(nsave) * dt_save || t == Tf))
             {
                 const std::string suffix = (nfiles != 1) ? fmt::format("ite_{}", nsave++) : "";
                 samurai::starpu_uniform::insert_save(path, fmt::format("{}_{}", filename, suffix), mesh, u);
             }
+
+
+            nt++;
         }
 
         auto end_loop = std::chrono::steady_clock::now();
@@ -213,6 +238,43 @@ int main(int argc, char* argv[])
         std::cout << "Task submission time: " << total_submit_time << " s" << std::endl;
         std::cout << "Execution time (wait): " << total_wait_time << " s" << std::endl;
         std::cout << "=====================================" << std::endl;
+
+        if (!save_perf_filename.empty())
+        {
+            std::FILE* file = std::fopen(save_perf_filename.c_str(), "a");
+            if (file == nullptr)
+            {
+                std::fprintf(stderr, "Warning: Cannot open file %s to save performance\n", save_perf_filename.c_str());
+            }
+            else
+            {
+                std::fseek(file, 0, SEEK_END);
+                if (std::ftell(file) == 0)
+                {
+                    std::fprintf(file, "machine,version,label,num_threads,mpi_size,level,nb_tasks,max_iter,time\n");
+                }
+
+                char machine_name[256];
+                if (gethostname(machine_name, 256) != 0)
+                {
+                    std::strcpy(machine_name, "Unknown");
+                }
+
+                int num_threads = starpu_cpu_worker_get_count();
+
+                std::fprintf(file, "%s,starpu,%s,%d,%d,%d,%d,%d,%f\n",
+                             machine_name,
+                             label.c_str(),
+                             num_threads,
+                             1,
+                             static_cast<int>(level),
+                             static_cast<int>(nb_task),
+                             static_cast<int>(nt),
+                             total_submit_time + total_wait_time);
+
+                std::fclose(file);
+            }
+        }
     }
 
     samurai::finalize();
