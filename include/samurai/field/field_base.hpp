@@ -230,11 +230,11 @@ namespace samurai
         SAMURAI_INLINE Derived& FieldBase<Derived>::assign_expression(const field_expression<E>& e)
         {
             ScopedTimer timer_fld("field expressions");
-            for_each_interval(this->derived_cast().mesh(),
-                              [&](std::size_t level, const auto& i, const auto& index)
-                              {
-                                  noalias(this->derived_cast()(level, i, index)) = e.derived_cast()(level, i, index);
-                              });
+            parallel_for_each_interval(this->derived_cast().mesh(),
+                                       [&](std::size_t level, const auto& i, const auto& index)
+                                       {
+                                           noalias(this->derived_cast()(level, i, index)) = e.derived_cast()(level, i, index);
+                                       });
             m_ghosts_updated = false;
             return this->derived_cast();
         }

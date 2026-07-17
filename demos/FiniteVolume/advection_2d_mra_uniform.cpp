@@ -150,9 +150,9 @@ int main_fct(bool first_run, int argc, char* argv[])
 
     auto unp1 = samurai::make_scalar_field<double>("unp1", mesh);
 
-    auto MRadaptation = samurai::make_MRAdapt(u);
-    auto mra_config   = samurai::mra_config().epsilon(2e-4);
-    MRadaptation(mra_config);
+    //auto MRadaptation = samurai::make_MRAdapt(u);
+    //auto mra_config   = samurai::mra_config().epsilon(2e-4);
+    //MRadaptation(mra_config);
     if (!no_save)
     {
         save(path, filename, u, "_init");
@@ -165,7 +165,7 @@ int main_fct(bool first_run, int argc, char* argv[])
 
     while (t != Tf && nt < max_iter)
     {
-        MRadaptation(mra_config);
+        //MRadaptation(mra_config);
 
         t += dt;
         if (t > Tf)

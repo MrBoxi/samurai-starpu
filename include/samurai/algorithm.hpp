@@ -96,6 +96,58 @@ namespace samurai
         }
     }
 
+    template <std::size_t dim, class TInterval, class Func>
+    SAMURAI_INLINE void parallel_for_each_interval(const LevelCellArray<dim, TInterval>& lca, Func&& f)
+    {
+        if (!lca.empty())
+        {
+#ifdef SAMURAI_WITH_OPENMP
+#pragma omp parallel
+#pragma omp single nowait
+            {
+                for (auto it = lca.cbegin(); it != lca.cend(); ++it)
+                {
+#pragma omp task firstprivate(it)
+                    {
+                        f(lca.level(), *it, it.index());
+                    }
+                }
+            }
+#else
+            for (auto it = lca.cbegin(); it != lca.cend(); ++it)
+            {
+                f(lca.level(), *it, it.index());
+            }
+#endif
+        }
+    }
+
+    template <std::size_t dim, class TInterval, class Func>
+    SAMURAI_INLINE void parallel_for_each_interval(LevelCellArray<dim, TInterval>& lca, Func&& f)
+    {
+        if (!lca.empty())
+        {
+#ifdef SAMURAI_WITH_OPENMP
+#pragma omp parallel
+#pragma omp single nowait
+            {
+                for (auto it = lca.begin(); it != lca.end(); ++it)
+                {
+#pragma omp task firstprivate(it)
+                    {
+                        f(lca.level(), *it, it.index());
+                    }
+                }
+            }
+#else
+            for (auto it = lca.begin(); it != lca.end(); ++it)
+            {
+                f(lca.level(), *it, it.index());
+            }
+#endif
+        }
+    }
+
     template <std::size_t dim, class TInterval, std::size_t max_size, class Func>
     SAMURAI_INLINE void for_each_interval(const CellArray<dim, TInterval, max_size>& ca, Func&& f)
     {
@@ -114,11 +166,36 @@ namespace samurai
         }
     }
 
+    template <std::size_t dim, class TInterval, std::size_t max_size, class Func>
+    SAMURAI_INLINE void parallel_for_each_interval(const CellArray<dim, TInterval, max_size>& ca, Func&& f)
+    {
+        for (std::size_t level = ca.min_level(); level <= ca.max_level(); ++level)
+        {
+            parallel_for_each_interval(ca[level], std::forward<Func>(f));
+        }
+    }
+
+    template <std::size_t dim, class TInterval, std::size_t max_size, class Func>
+    SAMURAI_INLINE void parallel_for_each_interval(CellArray<dim, TInterval, max_size>& ca, Func&& f)
+    {
+        for (std::size_t level = ca.min_level(); level <= ca.max_level(); ++level)
+        {
+            parallel_for_each_interval(ca[level], std::forward<Func>(f));
+        }
+    }
+
     template <mesh_like Mesh, class Func>
     SAMURAI_INLINE void for_each_interval(const Mesh& mesh, Func&& f)
     {
         using mesh_id_t = typename Mesh::mesh_id_t;
         for_each_interval(mesh[mesh_id_t::cells], std::forward<Func>(f));
+    }
+
+    template <mesh_like Mesh, class Func>
+    SAMURAI_INLINE void parallel_for_each_interval(const Mesh& mesh, Func&& f)
+    {
+        using mesh_id_t = typename Mesh::mesh_id_t;
+        parallel_for_each_interval(mesh[mesh_id_t::cells], std::forward<Func>(f));
     }
 
     template <class Func, class Set>
