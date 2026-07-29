@@ -48,7 +48,7 @@ for units in unit_counts:
 print("\n--- Running StarPU ---")
 for units in unit_counts:
     env_sp = {"STARPU_NCPU": [units]}
-    nb_tasks = max(4, units * 4)
+    nb_tasks = units #max(4, units * 4)
     options_sp = options.copy()
     options_sp["--nb-task"] = [nb_tasks]
     options_sp["--label"] = ["starpu"]
