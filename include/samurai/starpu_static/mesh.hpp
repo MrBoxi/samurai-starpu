@@ -138,11 +138,12 @@ namespace samurai
                     {
                         if (i == j) continue;
 
-                        auto src_cells = union_(m_meshes[j][mesh_id_t::cells][level],
-                                                m_meshes[j][mesh_id_t::proj_cells][level]);
+                        const auto& src_mesh = m_meshes[j];
+                        const auto& dst_mesh = m_meshes[i];
 
-                        auto intersect = intersection(src_cells,
-                                                      m_meshes[i][mesh_id_t::reference][level]);
+                        auto intersect = intersection(src_mesh[mesh_id_t::all_cells][level],
+                                                      dst_mesh[mesh_id_t::all_cells][level],
+                                                      src_mesh.subdomain(level));
 
                         ca_type ca_intersect(intersect);
                         if (ca_intersect.nb_cells() > 0)

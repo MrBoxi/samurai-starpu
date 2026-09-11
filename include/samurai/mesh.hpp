@@ -240,7 +240,7 @@ namespace samurai
 
       private:
 
-        void construct_subdomain();
+        void construct_subdomain(bool force = false);
         void construct_domain();
         void build_pyramid(ca_type& pyramid, const lca_type& reference);
         void construct_union();
@@ -402,7 +402,7 @@ namespace samurai
     {
         m_cells[mesh_id_t::cells] = ca;
 
-        construct_subdomain();
+        construct_subdomain(true);
         exchange_neighbour_meshes();
         finalize_mesh(ref_mesh.origin_point(), ref_mesh.scaling_factor());
     }
@@ -1157,14 +1157,14 @@ namespace samurai
     }
 
     template <class D, class Config>
-    SAMURAI_INLINE void Mesh_base<D, Config>::construct_subdomain()
+    SAMURAI_INLINE void Mesh_base<D, Config>::construct_subdomain(bool force)
     {
 #ifdef SAMURAI_WITH_MPI
         mpi::communicator world;
-        if (world.size() > 1 || m_domain.empty())
+        if (world.size() > 1 || m_domain.empty() || force)
         {
 #else
-        if (m_domain.empty())
+        if (m_domain.empty() || force)
         {
 #endif
             // TODO: Don't build subdomain when we are in serial or in parallel with only one rank. This is a waste of memory and time.
