@@ -286,7 +286,7 @@ int main(int argc, char* argv[])
 
                 int num_threads = starpu_cpu_worker_get_count();
 
-                std::fprintf(file, "%s,starpu-mr-static,%s,%d,%d,%d,%d,%d,%f\n",
+                std::fprintf(file, "%s,starpu,%s,%d,%d,%d,%d,%d,%f\n",
                              machine_name,
                              label.c_str(),
                              num_threads,

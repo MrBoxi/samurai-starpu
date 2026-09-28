@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import os
-import subprocess
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -8,7 +7,7 @@ import numpy as np
 from common import ROOT_PROJECT_PATH, PERF_DIR
 
 def generate_comparison_plots():
-    csv_file = os.path.join(PERF_DIR, "perf_results.csv")
+    csv_file = os.path.join(PERF_DIR, "perf_results_mr_static.csv")
     
     if not os.path.exists(csv_file):
         print(f"Error: {csv_file} not found. Cannot plot.")
@@ -19,8 +18,10 @@ def generate_comparison_plots():
     # Map units to a unified column
     df['units'] = np.where(df['version'] == 'mpi', df['mpi_size'], df['num_threads'])
     
-    # Compute average execution time per config (level, version, units, max_iter)
-    grouped = df.groupby(['level', 'version', 'units', 'max_iter'], as_index=False)['time'].mean()
+    # Compute stats per config (level, version, units, max_iter): mean, min, max
+    agg_df = df.groupby(['level', 'version', 'units', 'max_iter'], as_index=False)['time'].agg(
+        time_mean='mean', time_min='min', time_max='max'
+    )
     
     # Apply a nice seaborn style
     sns.set_theme(style="whitegrid")
@@ -33,10 +34,9 @@ def generate_comparison_plots():
         
     colors = {"omp": "#1f77b4", "mpi": "#ff7f0e", "starpu": "#2ca02c"}
     markers = {"omp": "o", "mpi": "s", "starpu": "^"}
-    labels = {"omp": "OpenMP", "mpi": "MPI", "starpu": "StarPU (Uniform)"}
-    
-    # We will store the selected lvl_data for speedup calculation
-    latest_grouped_rows = []
+    labels = {"omp": "OpenMP", "mpi": "MPI", "starpu": "StarPU (MR Static)"}
+    cell_counts = {11: 102616, 12: 202920, 13: 403096, 14: 805256, 15: 1608072}
+
     
     for i, lvl in enumerate(levels):
         ax = axes[i]
@@ -45,55 +45,59 @@ def generate_comparison_plots():
         lvl_df = df[df['level'] == lvl]
         latest_max_iter = lvl_df['max_iter'].iloc[-1]
         
-        lvl_data = grouped[(grouped['level'] == lvl) & (grouped['max_iter'] == latest_max_iter)]
-        latest_grouped_rows.append(lvl_data)
+        lvl_data = agg_df[(agg_df['level'] == lvl) & (agg_df['max_iter'] == latest_max_iter)]
+
         
         for version in ["omp", "mpi", "starpu"]:
             v_data = lvl_data[lvl_data['version'] == version].sort_values('units')
             if not v_data.empty:
-                ax.plot(v_data['units'], v_data['time'], 
-                        marker=markers[version], color=colors[version], linewidth=2, markersize=8,
-                        label=labels[version])
+                yerr_low = v_data['time_mean'] - v_data['time_min']
+                yerr_high = v_data['time_max'] - v_data['time_mean']
+                ax.errorbar(v_data['units'], v_data['time_mean'], 
+                            yerr=[yerr_low, yerr_high],
+                            marker=markers[version], color=colors[version], linewidth=2, markersize=8,
+                            capsize=4, capthick=1.5,
+                            label=labels[version])
                 
-        ax.set_title(f"Level {lvl} ($2^{{{lvl}}}\\times 2^{{{lvl}}}$ cells)\n({latest_max_iter} iterations)", fontsize=14, fontweight='bold')
+        cells_str = f" ({cell_counts[lvl]:,} cells)".replace(",", " ") if lvl in cell_counts else ""
+        ax.set_title(f"MR Static: Max Level {lvl}{cells_str}\n({latest_max_iter} iterations)", fontsize=14, fontweight='bold')
         ax.set_xlabel("Calculation Units (Threads / Processes)", fontsize=12)
         if i == 0:
             ax.set_ylabel("Execution Time (seconds)", fontsize=12)
         ax.set_xscale('log', base=2)
         ax.set_xticks(sorted(lvl_data['units'].unique()))
         ax.get_xaxis().set_major_formatter(plt.ScalarFormatter())
+        ax.set_ylim(bottom=0)
         ax.legend(fontsize=11)
         
-    plt.suptitle("Advection 2D Performance Comparison: StarPU vs. OpenMP vs. MPI", fontsize=16, y=1.02, fontweight='bold')
+    plt.suptitle("Advection 2D MR Static Performance Comparison: StarPU vs. OpenMP vs. MPI", fontsize=16, y=1.02, fontweight='bold')
     plt.tight_layout()
     
-    out_perf = os.path.join(ROOT_PROJECT_PATH, "performance_comparison.png")
+    out_perf = os.path.join(ROOT_PROJECT_PATH, "performance_comparison_mr_static.png")
     plt.savefig(out_perf, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"Saved execution time plot to {out_perf}")
     
     # ------------------ Plot 2: Speedup vs. Units ------------------
     speedup_rows = []
-    for lvl_data in latest_grouped_rows:
-        if lvl_data.empty:
-            continue
-        lvl = lvl_data['level'].iloc[0]
-        latest_max_iter = lvl_data['max_iter'].iloc[0]
+    for lvl in levels:
+        lvl_df = df[df['level'] == lvl]
+        latest_max_iter = lvl_df['max_iter'].iloc[-1]
         
         for version in ["omp", "mpi", "starpu"]:
-            v_data = lvl_data[lvl_data['version'] == version]
-            if v_data.empty:
+            v_raw = lvl_df[(lvl_df['version'] == version) & (lvl_df['max_iter'] == latest_max_iter)]
+            if v_raw.empty:
                 continue
-            # Find baseline time at units = 1
-            t1_row = v_data[v_data['units'] == 1]
-            if t1_row.empty:
-                min_units = v_data['units'].min()
-                t1 = v_data[v_data['units'] == min_units]['time'].values[0]
+            # Find baseline mean time at units = 1
+            t1_raw = v_raw[v_raw['units'] == 1]
+            if t1_raw.empty:
+                min_units = v_raw['units'].min()
+                t1_mean = v_raw[v_raw['units'] == min_units]['time'].mean()
             else:
-                t1 = t1_row['time'].values[0]
+                t1_mean = t1_raw['time'].mean()
                 
-            for idx, row in v_data.iterrows():
-                speedup = t1 / row['time']
+            for idx, row in v_raw.iterrows():
+                speedup = t1_mean / row['time']
                 speedup_rows.append({
                     'level': lvl,
                     'max_iter': latest_max_iter,
@@ -103,6 +107,9 @@ def generate_comparison_plots():
                 })
                 
     df_speedup = pd.DataFrame(speedup_rows)
+    agg_speedup = df_speedup.groupby(['level', 'version', 'units', 'max_iter'], as_index=False)['speedup'].agg(
+        speedup_mean='mean', speedup_min='min', speedup_max='max'
+    )
     
     fig, axes = plt.subplots(1, len(levels), figsize=(18, 5), sharey=True)
     if len(levels) == 1:
@@ -111,11 +118,10 @@ def generate_comparison_plots():
     for i, lvl in enumerate(levels):
         ax = axes[i]
         
-        # Get the latest max_iter for this level
         lvl_df = df[df['level'] == lvl]
         latest_max_iter = lvl_df['max_iter'].iloc[-1]
         
-        lvl_data = df_speedup[(df_speedup['level'] == lvl) & (df_speedup['max_iter'] == latest_max_iter)]
+        lvl_data = agg_speedup[(agg_speedup['level'] == lvl) & (agg_speedup['max_iter'] == latest_max_iter)]
         
         # Plot ideal speedup line
         min_u = lvl_data['units'].min()
@@ -125,24 +131,29 @@ def generate_comparison_plots():
         for version in ["omp", "mpi", "starpu"]:
             v_data = lvl_data[lvl_data['version'] == version].sort_values('units')
             if not v_data.empty:
-                ax.plot(v_data['units'], v_data['speedup'], 
-                        marker=markers[version], color=colors[version], linewidth=2, markersize=8,
-                        label=labels[version])
+                yerr_low = v_data['speedup_mean'] - v_data['speedup_min']
+                yerr_high = v_data['speedup_max'] - v_data['speedup_mean']
+                ax.errorbar(v_data['units'], v_data['speedup_mean'], 
+                            yerr=[yerr_low, yerr_high],
+                            marker=markers[version], color=colors[version], linewidth=2, markersize=8,
+                            capsize=4, capthick=1.5,
+                            label=labels[version])
                 
-        ax.set_title(f"Level {lvl} ($2^{{{lvl}}}\\times 2^{{{lvl}}}$ cells)\n({latest_max_iter} iterations)", fontsize=14, fontweight='bold')
+        cells_str = f" ({cell_counts[lvl]:,} cells)".replace(",", " ") if lvl in cell_counts else ""
+        ax.set_title(f"MR Static: Max Level {lvl}{cells_str}\n({latest_max_iter} iterations)", fontsize=14, fontweight='bold')
         ax.set_xlabel("Calculation Units (Threads / Processes)", fontsize=12)
         if i == 0:
             ax.set_ylabel("Speedup (relative to 1 unit)", fontsize=12)
         ax.set_xscale('log', base=2)
         ax.set_xticks(sorted(lvl_data['units'].unique()))
         ax.get_xaxis().set_major_formatter(plt.ScalarFormatter())
-        ax.set_ylim(0, max_u + 2)
+        ax.set_ylim(bottom=0, top=max_u + 2)
         ax.legend(fontsize=11)
         
-    plt.suptitle("Advection 2D Speedup Comparison: StarPU vs. OpenMP vs. MPI", fontsize=16, y=1.02, fontweight='bold')
+    plt.suptitle("Advection 2D MR Static Speedup Comparison: StarPU vs. OpenMP vs. MPI", fontsize=16, y=1.02, fontweight='bold')
     plt.tight_layout()
     
-    out_speedup = os.path.join(ROOT_PROJECT_PATH, "speedup_comparison.png")
+    out_speedup = os.path.join(ROOT_PROJECT_PATH, "speedup_comparison_mr_static.png")
     plt.savefig(out_speedup, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"Saved speedup plot to {out_speedup}")

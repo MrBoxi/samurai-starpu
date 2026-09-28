@@ -8,7 +8,7 @@ DEBUG = False  # Set to False to run the actual benchmarks, True to debug comman
 levels = [11, 12, 13]
 max_iter = [200, 100, 50]
 unit_counts = [1, 2, 4, 8, 16]
-repetitions = 1
+repetitions = 3
 
 # Define experiment-specific executable paths
 OMP_BIN = os.path.join(EXEC_OMP, "finite-volume-advection-2d-mra-uniform")
