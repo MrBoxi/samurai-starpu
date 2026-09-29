@@ -13,6 +13,7 @@
 #include <starpu.h>
 #include <samurai/field/scalar_field.hpp>
 #include <samurai/concepts.hpp>
+#include <samurai/bc.hpp>
 #include <samurai/starpu_static/mesh.hpp>
 
 namespace samurai
@@ -124,6 +125,10 @@ namespace samurai
                 m_fields.emplace_back(m_name, m_starpu_mesh.get_mesh(i));
                 
                 auto& local_field = m_fields.back();
+                if (!global_field.get_bc().empty())
+                {
+                    local_field.copy_bc_from(global_field);
+                }
                 samurai::for_each_interval(local_field.mesh()[mesh_id_t::reference], [&](std::size_t level, const auto& interval, const auto& index) {
                     local_field(level, interval, index) = global_field(level, interval, index);
                 });
@@ -154,5 +159,25 @@ namespace samurai
         {
             u1.swap(u2);
         }
+
+        template <class bc_type, class StarpuField, class... Args>
+        void make_bc(StarpuField& u, Args&&... args)
+        {
+            for (int i = 0; i < u.get_nb_task(); ++i)
+            {
+                samurai::make_bc<bc_type>(u.get_field(i), std::forward<Args>(args)...);
+            }
+        }
+
+        template <template <class> class bc_type, class StarpuField, class... Args>
+        void make_bc(StarpuField& u, Args&&... args)
+        {
+            for (int i = 0; i < u.get_nb_task(); ++i)
+            {
+                samurai::make_bc<bc_type>(u.get_field(i), std::forward<Args>(args)...);
+            }
+        }
     }
+
+    using starpu_static::make_bc;
 }

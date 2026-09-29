@@ -11,6 +11,7 @@
 #include <xtensor/containers/xfixed.hpp>
 
 #include <samurai/samurai.hpp>
+#include <samurai/bc.hpp>
 #include <samurai/mr/mesh.hpp>
 #include <samurai/mr/adapt.hpp>
 #include <samurai/starpu_static.hpp>
@@ -164,6 +165,7 @@ int main(int argc, char* argv[])
         auto global_mesh = samurai::mra::make_mesh(box, config);
         auto u_global    = samurai::make_scalar_field<double>("u", global_mesh);
         init_field(u_global);
+        samurai::make_bc<samurai::Dirichlet<1>>(u_global, 0.);
 
         auto MRadaptation = samurai::make_MRAdapt(u_global);
         auto mra_config   = samurai::mra_config().epsilon(2e-4);
@@ -185,6 +187,9 @@ int main(int argc, char* argv[])
         init_starpu_field(u);
         samurai::starpu_static::StarpuMRScalarField<decltype(starpu_mesh), double> unp1("unp1", starpu_mesh);
         unp1.fill(0.0);
+
+        samurai::starpu_static::make_bc<samurai::Dirichlet<1>>(u, 0.);
+        samurai::starpu_static::make_bc<samurai::Dirichlet<1>>(unp1, 0.);
 
         double dt            = cfl * starpu_mesh.min_cell_length();
         const double dt_save = Tf / static_cast<double>(nfiles);

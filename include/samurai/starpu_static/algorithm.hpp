@@ -244,7 +244,7 @@ namespace samurai
             std::size_t level = args.level;
             auto pred_ghosts = difference(mesh[mesh_id_t::all_cells][level],
                                           union_(mesh[mesh_id_t::cells][level], mesh[mesh_id_t::proj_cells][level]));
-            auto expr = intersection(pred_ghosts, mesh[mesh_id_t::all_cells][level - 1]).on(level);
+            auto expr = intersection(pred_ghosts, mesh.subdomain(level), mesh[mesh_id_t::all_cells][level - 1]).on(level);
             expr.apply_op(samurai::variadic_prediction<pred_order, false>(u));
         }
 
