@@ -1,9 +1,20 @@
 #!/usr/bin/env python3
 import os
-import pandas as pd
+import sys
+
+# Ensure execution from xp directory so common.py does not fail
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if os.getcwd() != SCRIPT_DIR:
+    os.chdir(SCRIPT_DIR)
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
-from common import ROOT_PROJECT_PATH, PERF_DIR
+import pandas as pd
+from common import PERF_DIR, PLOTS_DIR
 
 def plot_variant_granularity(df, label, levels, cell_counts_dict, title_prefix, filename_prefix):
     variant_df = df[(df['label'] == label) & (df['nb_tasks'] < 512)]
@@ -66,10 +77,14 @@ def plot_variant_granularity(df, label, levels, cell_counts_dict, title_prefix, 
     plt.suptitle(f"Impact of Granularity on Execution Time (Fixed 16 Threads): {title_prefix}", fontsize=16, y=1.02, fontweight='bold')
     plt.tight_layout()
     
-    out_path = os.path.join(ROOT_PROJECT_PATH, f"{filename_prefix}.png")
-    plt.savefig(out_path, dpi=300, bbox_inches='tight')
+    output_dir = os.path.join(PLOTS_DIR, "granularity")
+    os.makedirs(output_dir, exist_ok=True)
+
+    out_base = os.path.join(output_dir, filename_prefix)
+    for ext in ["png", "pdf"]:
+        plt.savefig(f"{out_base}.{ext}", dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"Saved {out_path}")
+    print(f"Saved {out_base}.png and {out_base}.pdf")
 
 def generate_granularity_plots():
     csv_file = os.path.join(PERF_DIR, "perf_results_granularity.csv")

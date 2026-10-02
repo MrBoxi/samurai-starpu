@@ -1,10 +1,21 @@
 #!/usr/bin/env python3
 import os
-import pandas as pd
+import sys
+
+# Ensure execution from xp directory so common.py does not fail
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if os.getcwd() != SCRIPT_DIR:
+    os.chdir(SCRIPT_DIR)
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
-from common import ROOT_PROJECT_PATH, PERF_DIR
+import pandas as pd
+from common import PERF_DIR, PLOTS_DIR
 
 def generate_comparison_plots():
     csv_file = os.path.join(PERF_DIR, "perf_results.csv")
@@ -71,10 +82,14 @@ def generate_comparison_plots():
     plt.suptitle("Advection 2D Performance Comparison: StarPU vs. OpenMP vs. MPI", fontsize=16, y=1.02, fontweight='bold')
     plt.tight_layout()
     
-    out_perf = os.path.join(ROOT_PROJECT_PATH, "performance_comparison.png")
-    plt.savefig(out_perf, dpi=300, bbox_inches='tight')
+    output_dir = os.path.join(PLOTS_DIR, "uniform")
+    os.makedirs(output_dir, exist_ok=True)
+
+    out_perf_base = os.path.join(output_dir, "performance_comparison")
+    for ext in ["png", "pdf"]:
+        plt.savefig(f"{out_perf_base}.{ext}", dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"Saved execution time plot to {out_perf}")
+    print(f"Saved execution time plot to {out_perf_base}.png and {out_perf_base}.pdf")
     
     # ------------------ Plot 2: Speedup vs. Units ------------------
     speedup_rows = []
@@ -150,10 +165,11 @@ def generate_comparison_plots():
     plt.suptitle("Advection 2D Speedup Comparison: StarPU vs. OpenMP vs. MPI", fontsize=16, y=1.02, fontweight='bold')
     plt.tight_layout()
     
-    out_speedup = os.path.join(ROOT_PROJECT_PATH, "speedup_comparison.png")
-    plt.savefig(out_speedup, dpi=300, bbox_inches='tight')
+    out_speedup_base = os.path.join(output_dir, "speedup_comparison")
+    for ext in ["png", "pdf"]:
+        plt.savefig(f"{out_speedup_base}.{ext}", dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"Saved speedup plot to {out_speedup}")
+    print(f"Saved speedup plot to {out_speedup_base}.png and {out_speedup_base}.pdf")
 
 if __name__ == "__main__":
     generate_comparison_plots()

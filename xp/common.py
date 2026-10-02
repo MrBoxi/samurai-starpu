@@ -16,5 +16,8 @@ EXEC_STARPU = os.path.abspath(os.path.join(ROOT_PROJECT_PATH, "build", "demos", 
 # Absolute path to the performance output directory
 PERF_DIR = os.path.abspath(os.path.join(ROOT_PROJECT_PATH, "xp", "perf"))
 
+# Absolute path to the plots output directory
+PLOTS_DIR = os.path.abspath(os.path.join(ROOT_PROJECT_PATH, "xp", "plots"))
+
 # Absolute path to Conda mpirun
 MPI_PATH = os.path.join(os.environ['HOME'], "miniforge3/envs/samurai-mpi-env/bin/mpirun")
