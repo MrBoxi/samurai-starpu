@@ -4,7 +4,7 @@
 #pragma once
 
 #ifndef SAMURAI_WITH_STARPU
-#error "The header file <samurai/starpu_static/mesh.hpp> should not be included if SAMURAI_WITH_STARPU is not defined."
+#error "The header file <samurai/starpu_dynamic_naive/mesh.hpp> should not be included if SAMURAI_WITH_STARPU is not defined."
 #endif
 
 #include <vector>
@@ -13,7 +13,7 @@
 
 namespace samurai
 {
-    namespace starpu_static
+    namespace starpu_dynamic_naive
     {
         template <class Config>
         class StarpuMRMesh
@@ -55,6 +55,10 @@ namespace samurai
                 return m_global_mesh.cell_length(m_global_mesh.max_level());
             }
 
+            void partition();
+            void rebuild();
+            void rebuild(const mesh_t& global_mesh);
+
             void swap(StarpuMRMesh& other) noexcept
             {
                 std::swap(m_nb_task, other.m_nb_task);
@@ -75,10 +79,32 @@ namespace samurai
             : m_nb_task(nb_task)
             , m_global_mesh(global_mesh)
         {
-            assert(nb_task >= 1);
+            partition();
+        }
+
+        template <class Config>
+        void StarpuMRMesh<Config>::rebuild()
+        {
+            partition();
+        }
+
+        template <class Config>
+        void StarpuMRMesh<Config>::rebuild(const mesh_t& global_mesh)
+        {
+            m_global_mesh = global_mesh;
+            partition();
+        }
+
+        template <class Config>
+        void StarpuMRMesh<Config>::partition()
+        {
+            assert(m_nb_task >= 1);
+            m_meshes.clear();
+            m_intersections.clear();
+
             using mesh_id_t = typename mesh_t::mesh_id_t;
             auto& global_domain = m_global_mesh[mesh_id_t::cells];
-            m_meshes.reserve(nb_task);
+            m_meshes.reserve(m_nb_task);
 
             constexpr std::size_t split_dim = (dim >= 2) ? 1 : 0;
             double spatial_min = m_global_mesh.domain().min_corner()[split_dim];
@@ -86,13 +112,13 @@ namespace samurai
             double spatial_len = spatial_max - spatial_min;
 
             std::vector<typename mesh_t::ca_type> subdomains_ca;
-            subdomains_ca.reserve(nb_task);
+            subdomains_ca.reserve(m_nb_task);
 
-            for (int rank = 0; rank < nb_task; ++rank)
+            for (int rank = 0; rank < m_nb_task; ++rank)
             {
                 cl_type subdomain_cells(global_domain.origin_point(), global_domain.scaling_factor());
-                double rank_min = spatial_min + (static_cast<double>(rank) / static_cast<double>(nb_task)) * spatial_len;
-                double rank_max = spatial_min + (static_cast<double>(rank + 1) / static_cast<double>(nb_task)) * spatial_len;
+                double rank_min = spatial_min + (static_cast<double>(rank) / static_cast<double>(m_nb_task)) * spatial_len;
+                double rank_max = spatial_min + (static_cast<double>(rank + 1) / static_cast<double>(m_nb_task)) * spatial_len;
 
                 if (dim == 1)
                 {
@@ -103,8 +129,8 @@ namespace samurai
                                               for (auto i = mi.i.start; i < mi.i.end; ++i)
                                               {
                                                   double pos = (static_cast<double>(i) + 0.5) * cell_length + m_global_mesh.origin_point()[0];
-                                                  bool in_band = (rank == nb_task - 1) ? (pos >= rank_min && pos <= rank_max)
-                                                                                       : (pos >= rank_min && pos < rank_max);
+                                                  bool in_band = (rank == m_nb_task - 1) ? (pos >= rank_min && pos <= rank_max)
+                                                                                         : (pos >= rank_min && pos < rank_max);
                                                   if (in_band)
                                                   {
                                                       subdomain_cells[mi.level][mi.index].add_point(i);
@@ -119,8 +145,8 @@ namespace samurai
                                           {
                                               double cell_length = m_global_mesh.cell_length(mi.level);
                                               double pos = (static_cast<double>(mi.index[0]) + 0.5) * cell_length + m_global_mesh.origin_point()[split_dim];
-                                              bool in_band = (rank == nb_task - 1) ? (pos >= rank_min && pos <= rank_max)
-                                                                                   : (pos >= rank_min && pos < rank_max);
+                                              bool in_band = (rank == m_nb_task - 1) ? (pos >= rank_min && pos <= rank_max)
+                                                                                     : (pos >= rank_min && pos < rank_max);
                                               if (in_band)
                                               {
                                                   subdomain_cells[mi.level][mi.index].add_interval(mi.i);
@@ -131,7 +157,7 @@ namespace samurai
                 subdomains_ca.emplace_back(subdomain_cells);
             }
 
-            if (nb_task == 1)
+            if (m_nb_task == 1)
             {
                 m_meshes.emplace_back(subdomains_ca[0], m_global_mesh);
             }
@@ -139,15 +165,15 @@ namespace samurai
             {
                 // Step 1: Create initial meshes for all subdomains
                 std::vector<mesh_t> initial_meshes;
-                initial_meshes.reserve(nb_task);
-                for (int rank = 0; rank < nb_task; ++rank)
+                initial_meshes.reserve(m_nb_task);
+                for (int rank = 0; rank < m_nb_task; ++rank)
                 {
                     initial_meshes.emplace_back(subdomains_ca[rank], m_global_mesh);
                 }
 
                 // Step 2: Re-create local meshes with neighbour subdomains populated
                 // This allows Samurai MRMesh to construct interface ghost cells and prediction ghosts across boundaries.
-                for (int rank = 0; rank < nb_task; ++rank)
+                for (int rank = 0; rank < m_nb_task; ++rank)
                 {
                     mesh_t ref_mesh = m_global_mesh;
                     auto& neighbourhood = ref_mesh.mpi_neighbourhood();
@@ -158,7 +184,7 @@ namespace samurai
                         neighbourhood.emplace_back(rank - 1);
                         neighbourhood.back().mesh = initial_meshes[rank - 1];
                     }
-                    if (rank + 1 < nb_task)
+                    if (rank + 1 < m_nb_task)
                     {
                         neighbourhood.emplace_back(rank + 1);
                         neighbourhood.back().mesh = initial_meshes[rank + 1];
@@ -171,9 +197,9 @@ namespace samurai
             // Compute exact safe intersections: src cells (including projected cells) intersected with dst reference cells
             for (std::size_t level = m_global_mesh.min_level(); level <= m_global_mesh.max_level(); ++level)
             {
-                for (int j = 0; j < nb_task; ++j) // src sender
+                for (int j = 0; j < m_nb_task; ++j) // src sender
                 {
-                    for (int i = 0; i < nb_task; ++i) // dst receiver
+                    for (int i = 0; i < m_nb_task; ++i) // dst receiver
                     {
                         if (i == j) continue;
 

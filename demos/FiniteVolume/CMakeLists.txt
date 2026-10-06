@@ -21,9 +21,11 @@ advection_1d.cpp:finite-volume-advection-1d
 advection_2d.cpp:finite-volume-advection-2d
 advection_2d_mra_uniform.cpp:finite-volume-advection-2d-mra-uniform
 advection_2d_mra_static.cpp:finite-volume-advection-2d-mra-static
+advection_2d_mra_dynamic.cpp:finite-volume-advection-2d-mra-dynamic
 advection_2d_simplified.cpp:finite-volume-advection-2d-simplified
 advection_2d_starpu.cpp:finite-volume-advection-2d-starpu
 advection_2d_starpu_mr_static.cpp:finite-volume-advection-2d-starpu-mr-static
+advection_2d_starpu_mr_dynamic_naive.cpp:finite-volume-advection-2d-starpu-mr-dynamic-naive
 advection_3d.cpp:finite-volume-advection-3d
 advection_2d_user_bc.cpp:finite-volume-advection-2d-user-bc
 scalar_burgers_2d.cpp:finite-volume-scalar-burgers-2d
