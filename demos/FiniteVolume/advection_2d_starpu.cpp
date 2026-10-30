@@ -3,6 +3,8 @@
 
 #include <array>
 #include <chrono>
+#include <map>
+#include <string>
 #include <xtensor/containers/xfixed.hpp>
 
 #include <samurai/samurai.hpp>
@@ -10,6 +12,7 @@
 #include <samurai/starpu_uniform/field.hpp>
 #include <samurai/starpu_uniform/algorithm.hpp>
 #include <samurai/starpu_uniform/save.hpp>
+#include <samurai/starpu_uniform/view.hpp>
 #include <samurai/io/hdf5.hpp>
 
 #include <filesystem>
@@ -18,44 +21,42 @@ namespace fs = std::filesystem;
 // ----------------------------------------------------
 // USER ADVECTION UPDATE CODELET
 // ----------------------------------------------------
-template <class StarpuField>
 struct UpdateArgs
 {
-    using local_field_t = typename StarpuField::local_field_t;
-    local_field_t* u_ptr;
-    local_field_t* unp1_ptr;
+    int nx;
+    int ny;
+    int row_stride;
+    int ghost_width;
     double dt;
     double cell_length;
     double a0;
     double a1;
 };
 
-template <class StarpuField>
+template <class value_t = double>
 void advection_update_cpu_func(void *buffers[], void *cl_arg)
 {
-    UpdateArgs<StarpuField> args;
+    UpdateArgs args;
     starpu_codelet_unpack_args(cl_arg, &args);
 
-    auto& u = *args.u_ptr;
-    auto& unp1 = *args.unp1_ptr;
-    auto& mesh = u.mesh();
+    const auto* u_data = reinterpret_cast<const value_t*>(STARPU_VECTOR_GET_PTR(buffers[0]));
+    auto* unp1_data    = reinterpret_cast<value_t*>(STARPU_VECTOR_GET_PTR(buffers[1]));
 
-    // Verify that StarPU CPU worker uses the same registered pointers
-    using value_type = typename StarpuField::value_type;
-    assert((value_type*)STARPU_VECTOR_GET_PTR(buffers[0]) == u.data());
-    assert((value_type*)STARPU_VECTOR_GET_PTR(buffers[1]) == unp1.data());
+    samurai::starpu_uniform::UniformFieldView<const value_t> u(u_data, args.row_stride, args.ghost_width);
+    samurai::starpu_uniform::UniformFieldView<value_t> unp1(unp1_data, args.row_stride, args.ghost_width);
 
-    samurai::for_each_interval(
-        mesh,
-        [&](std::size_t level, const auto& i, const auto& jk)
+    double coeff = args.dt / args.cell_length;
+
+    for (int y = 0; y < args.ny; ++y)
+    {
+        for (int x = 0; x < args.nx; ++x)
         {
-            unp1(level, i, jk) = u(level, i, jk)
-                               - args.dt / args.cell_length
-                                     * (args.a0 * (u(level, i, jk) - u(level, i - 1, jk)) + args.a1 * (u(level, i, jk) - u(level, i, jk - 1)));
-        });
+            unp1(x, y) = u(x, y) - coeff * (args.a0 * (u(x, y) - u(x - 1, y)) + args.a1 * (u(x, y) - u(x, y - 1)));
+        }
+    }
 }
 
-template <class StarpuField>
+template <class value_t = double>
 starpu_codelet* get_advection_update_codelet()
 {
     static starpu_codelet cl;
@@ -63,7 +64,7 @@ starpu_codelet* get_advection_update_codelet()
     if (!init)
     {
         starpu_codelet_init(&cl);
-        cl.cpu_funcs[0] = advection_update_cpu_func<StarpuField>;
+        cl.cpu_funcs[0] = advection_update_cpu_func<value_t>;
         cl.nbuffers = 2;
         cl.modes[0] = STARPU_R;
         cl.modes[1] = STARPU_W;
@@ -71,6 +72,17 @@ starpu_codelet* get_advection_update_codelet()
         init = true;
     }
     return &cl;
+}
+
+inline const char* get_advection_update_task_name(int i)
+{
+    static std::map<int, std::string> task_names;
+    auto it = task_names.find(i);
+    if (it == task_names.end())
+    {
+        it = task_names.emplace(i, fmt::format("advection_update_{}", i)).first;
+    }
+    return it->second.c_str();
 }
 
 template <class StarpuField>
@@ -163,6 +175,12 @@ int main(int argc, char* argv[])
         double dt            = cfl * mesh.min_cell_length();
         const double dt_save = Tf / static_cast<double>(nfiles);
 
+        // Initial output
+        if (!no_save)
+        {
+            const std::string suffix = (nfiles != 1) ? "_ite_0" : "";
+            samurai::starpu_uniform::insert_save(path, fmt::format("{}{}", filename, suffix), mesh, u);
+        }
 
         std::size_t nsave = 1;
         std::size_t nt    = 0;
@@ -189,13 +207,16 @@ int main(int argc, char* argv[])
             samurai::starpu_uniform::submit_ghost_exchange(u, level);
 
             // 2. Submit user update tasks
-            auto cl_update = get_advection_update_codelet<decltype(u)>();
+            auto cl_update = get_advection_update_codelet<typename decltype(u)::value_type>();
             double cell_length = mesh.min_cell_length();
             for (int i = 0; i < nb_task; ++i)
             {
-                UpdateArgs<decltype(u)> args = {
-                    &u.get_field(i),
-                    &unp1.get_field(i),
+                const auto& grid_info = mesh.get_subdomain_grid_info(i);
+                UpdateArgs args = {
+                    grid_info.nx,
+                    grid_info.ny_interior,
+                    grid_info.row_stride,
+                    grid_info.ghost_width,
                     dt,
                     cell_length,
                     a[0],
@@ -207,6 +228,7 @@ int main(int argc, char* argv[])
                                    STARPU_W, unp1.get_handle(i),
                                    STARPU_VALUE, &args, sizeof(args),
                                    STARPU_TASK_COLOR, 0x00FF00, // Green color for update task
+                                   STARPU_NAME, get_advection_update_task_name(i),
                                    0);
             }
 
@@ -216,8 +238,8 @@ int main(int argc, char* argv[])
             // Save intermediate step
             if (!no_save && (t >= static_cast<double>(nsave) * dt_save || t == Tf))
             {
-                const std::string suffix = (nfiles != 1) ? fmt::format("ite_{}", nsave++) : "";
-                samurai::starpu_uniform::insert_save(path, fmt::format("{}_{}", filename, suffix), mesh, u);
+                const std::string suffix = (nfiles != 1) ? fmt::format("_ite_{}", nsave++) : "";
+                samurai::starpu_uniform::insert_save(path, fmt::format("{}{}", filename, suffix), mesh, u);
             }
 
 
