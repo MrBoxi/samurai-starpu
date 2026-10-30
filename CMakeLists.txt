@@ -27,6 +27,16 @@ if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
   cmake_policy(SET CMP0135 NEW)
 endif()
 
+if(POLICY CMP0177)
+  cmake_policy(SET CMP0177 NEW)
+  set(CMAKE_POLICY_DEFAULT_CMP0177 NEW)
+endif()
+if(POLICY CMP0167)
+  cmake_policy(SET CMP0167 NEW)
+  set(CMAKE_POLICY_DEFAULT_CMP0167 NEW)
+endif()
+
+
 # Add project_options v0.41.0
 # https://github.com/aminya/project_options
 include(FetchContent)
@@ -89,7 +99,10 @@ if(${IWYU})
 endif()
 
 if(${SAMURAI_ENABLE_CACHE})
-  LIST(APPEND FEATURES ENABLE_CACHE)
+  find_program(CACHE_BINARY NAMES ccache sccache)
+  if(CACHE_BINARY)
+    LIST(APPEND FEATURES ENABLE_CACHE)
+  endif()
 endif()
 
 if(${SANITIZERS})
@@ -116,6 +129,7 @@ if (${WITH_STARPU})
   find_package(PkgConfig)
   pkg_check_modules(STARPU REQUIRED starpu-1.4)
   if (STARPU_FOUND)
+    list(FILTER STARPU_INCLUDE_DIRS EXCLUDE REGEX "^no$")
     include_directories(${STARPU_INCLUDE_DIRS})
     link_directories(${STARPU_STATIC_LIBRARY_DIRS})
     target_link_libraries(samurai INTERFACE ${STARPU_LIBRARIES})
@@ -216,6 +230,9 @@ if(SAMURAI_FIELD_CONTAINER MATCHES eigen3 OR SAMURAI_FLUX_CONTAINER MATCHES eige
 endif()
 
 if(${WITH_OPENMP})
+  if(DEFINED ENV{CONDA_PREFIX} AND EXISTS "$ENV{CONDA_PREFIX}/lib/libgomp.so" AND NOT DEFINED OpenMP_gomp_LIBRARY)
+    set(OpenMP_gomp_LIBRARY "$ENV{CONDA_PREFIX}/lib/libgomp.so" CACHE FILEPATH "Path to OpenMP gomp library")
+  endif()
   find_package(OpenMP)
   if(OpenMP_CXX_FOUND)
       target_link_libraries(samurai INTERFACE OpenMP::OpenMP_CXX)
